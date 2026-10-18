@@ -1,0 +1,8 @@
+# temporary build files
+build/
+__pycache__/
+*.pyc
+
+# the finished installers are large; share them as GitHub Releases instead
+installers/windows/*.exe
+installers/mac/*.dmg

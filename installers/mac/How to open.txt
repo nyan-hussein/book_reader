@@ -1,0 +1,14 @@
+Bookshelf - a book reader for Mac
+
+1. Drag Bookshelf into the Applications folder (in this window).
+2. Open Applications and double-click Bookshelf.
+
+The first time, the Mac says it "cannot check Bookshelf for malicious software"
+(it says that for any app not registered with Apple):
+  - Click "Done" (or "OK").
+  - Open System Settings > Privacy & Security, scroll down, and click "Open Anyway"
+    next to the message about Bookshelf. Confirm with your password.
+It only asks once.
+
+Your library, reading progress and highlights are saved in
+~/Library/Application Support/Bookshelf. Your book files are never changed.
