@@ -1,13 +1,24 @@
-# Builds the Mac installer (installers/mac/Bookshelf.dmg) on GitHub's Macs.
+# Builds the Mac installer (Bookshelf.dmg) on GitHub's Macs and publishes it on the
+# repository's Releases page under "Mac installer" (a normal download link to share).
 # GitHub only reads build recipes from this .github/workflows folder, so it has to live here;
 # all it does is run installers/build_app.py.
 #
-# Run it from the repository's "Actions" tab > "Build Mac app" > "Run workflow".
-# When it finishes, Bookshelf.dmg is under "Artifacts" on the run's page.
+# It runs by itself when app or installer files change on master, or by hand from the
+# "Actions" tab > "Build Mac app" > "Run workflow".
 name: Build Mac app
 
 on:
   workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - "src/**"
+      - "installers/**"
+      - "requirements.txt"
+      - ".github/workflows/build-mac.yml"
+
+permissions:
+  contents: write  # to publish the .dmg on the Releases page
 
 jobs:
   mac:
@@ -25,3 +36,14 @@ jobs:
         with:
           name: Bookshelf-mac
           path: installers/mac/Bookshelf.dmg
+      - name: Publish on the Releases page
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mac-latest
+          name: Mac installer
+          body: |
+            **Bookshelf for Mac** (M1 and newer). Download `Bookshelf.dmg`, open it and drag
+            Bookshelf into Applications. The first time, open it via
+            System Settings → Privacy & Security → Open Anyway.
+          files: installers/mac/Bookshelf.dmg
+          make_latest: true
