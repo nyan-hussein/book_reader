@@ -19,6 +19,21 @@ def annotations_file(book_id: str) -> Path:
     return library.APP_DIR / "annotations" / f"{book_id}.json"
 
 
+def _valid(item) -> bool:
+    """Can this saved item be drawn? Damaged ones are skipped rather than crashing the reader."""
+    try:
+        int(item["page"])
+        str(item["color"])
+        if item["type"] == "highlight":
+            return all(len(r) == 4 for r in item["rects"])
+        if item["type"] in ("marker", "ink"):
+            float(item["width"])
+            return len(item["points"]) > 0 and all(len(pt) == 2 for pt in item["points"])
+    except (KeyError, TypeError, ValueError):
+        pass
+    return False
+
+
 class Annotations:
     """Every change is one undo step: (items removed, items added)."""
 
@@ -28,9 +43,12 @@ class Annotations:
         self._undo: list[tuple[list[dict], list[dict]]] = []
         self._redo: list[tuple[list[dict], list[dict]]] = []
         try:
-            self.items = json.loads(self.path.read_text(encoding="utf-8")).get("items", [])
-        except (OSError, ValueError):
-            self.items = []
+            items = json.loads(self.path.read_text(encoding="utf-8")).get("items", [])
+        except (OSError, ValueError, AttributeError):
+            items = []
+        self.items = [it for it in items if _valid(it)] if isinstance(items, list) else []
+        for it in self.items:
+            it.setdefault("id", uuid.uuid4().hex)
 
     def save(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)

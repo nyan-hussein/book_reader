@@ -1,0 +1,78 @@
+# Builds both installers on GitHub's computers and publishes them on the repository's
+# Releases page: "Windows installer" (Bookshelf-Setup.exe) and "Mac installer" (Bookshelf.dmg).
+# GitHub only reads build recipes from this .github/workflows folder, so it has to live here;
+# all it does is run installers/build_app.py on a Windows and a Mac machine.
+#
+# It runs by itself when app or installer files change on master, or by hand from the
+# "Actions" tab > "Build installers" > "Run workflow".
+name: Build installers
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+    paths:
+      - "src/**"
+      - "installers/**"
+      - "requirements.txt"
+      - ".github/workflows/build-installers.yml"
+
+permissions:
+  contents: write  # to publish the installers on the Releases page
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: python -m pip install -r requirements.txt pyinstaller
+      - name: Install Inno Setup
+        run: choco install innosetup --yes --no-progress
+      - name: Build, self-test, make Bookshelf-Setup.exe and test installing it
+        run: python installers/build_app.py --test-installer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bookshelf-windows
+          path: installers/windows/Bookshelf-Setup.exe
+      - name: Publish on the Releases page
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: windows-latest
+          name: Windows installer
+          body: |
+            **Bookshelf for Windows** (10 and 11). Download `Bookshelf-Setup.exe` and run it.
+            Windows may warn that the app isn't signed: click **More info → Run anyway**.
+            Installing over an older version keeps your library, progress and highlights.
+          files: installers/windows/Bookshelf-Setup.exe
+          make_latest: false
+
+  mac:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install
+        run: python -m pip install -r requirements.txt pyinstaller
+      - name: Build, self-test and make Bookshelf.dmg
+        run: python installers/build_app.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bookshelf-mac
+          path: installers/mac/Bookshelf.dmg
+      - name: Publish on the Releases page
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mac-latest
+          name: Mac installer
+          body: |
+            **Bookshelf for Mac** (M1 and newer). Download `Bookshelf.dmg`, open it and drag
+            Bookshelf into Applications. The first time, open it via
+            System Settings → Privacy & Security → Open Anyway.
+          files: installers/mac/Bookshelf.dmg
+          make_latest: true

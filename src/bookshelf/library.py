@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import shutil
 import sys
 import time
 from dataclasses import asdict, dataclass, field
@@ -83,15 +84,41 @@ class Library:
     def load(self) -> None:
         try:
             data = json.loads(LIBRARY_FILE.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            data = {}
         except (OSError, ValueError):
+            # unreadable (e.g. edited by hand): keep a copy so the next save doesn't lose it
+            try:
+                shutil.copy2(LIBRARY_FILE, LIBRARY_FILE.with_suffix(f".broken-{int(time.time())}.json"))
+            except OSError:
+                pass
+            data = {}
+        if not isinstance(data, dict):
             data = {}
         known = Book.__dataclass_fields__
-        self.books = [
-            Book(**{k: v for k, v in entry.items() if k in known})
-            for entry in data.get("books", [])
-        ]
-        self.last_dir = data.get("last_dir", self.last_dir)
-        self.settings = data.get("settings", {})
+        self.books = []
+        seen = set()
+        for entry in data.get("books") or []:
+            # skip entries that are damaged or listed twice instead of refusing to start
+            if not isinstance(entry, dict) or not isinstance(entry.get("path"), str):
+                continue
+            try:
+                book = Book(**{k: v for k, v in entry.items() if k in known})
+                book.title = str(book.title or Path(book.path).stem)
+                book.page_count = max(int(book.page_count), 0)
+                book.current_page = max(int(book.current_page), 0)
+                book.view_mode = int(book.view_mode)
+                book.added_at = float(book.added_at)
+                book.last_opened = float(book.last_opened)
+            except (TypeError, ValueError):
+                continue
+            if book.id not in seen:
+                seen.add(book.id)
+                self.books.append(book)
+        last_dir = data.get("last_dir")
+        self.last_dir = last_dir if isinstance(last_dir, str) else self.last_dir
+        settings = data.get("settings")
+        self.settings = settings if isinstance(settings, dict) else {}
 
     def save(self) -> None:
         data = {
@@ -101,7 +128,14 @@ class Library:
         }
         tmp = LIBRARY_FILE.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        tmp.replace(LIBRARY_FILE)
+        for attempt in range(5):
+            try:
+                tmp.replace(LIBRARY_FILE)
+                return
+            except PermissionError:  # Windows: antivirus / backup tools briefly lock the file
+                if attempt == 4:
+                    raise
+                time.sleep(0.05)
 
     def sorted_books(self) -> list[Book]:
         """Recently read first, then recently added."""

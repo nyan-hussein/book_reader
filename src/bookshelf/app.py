@@ -1,10 +1,14 @@
+import faulthandler
 import os
 import sys
+import time
+import traceback
 
 from PySide6.QtCore import QEvent, QTimer
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QStackedWidget
 
 from . import theme
+from . import library
 from .library import Book, Library
 from .library_view import LibraryView
 from .reader_view import ReaderView
@@ -45,9 +49,7 @@ class MainWindow(QMainWindow):
                 self, "Book not found",
                 f"“{book.title}” is no longer at:\n{book.path}\n\nRemove it from your library?")
             if answer == QMessageBox.StandardButton.Yes:
-                self.library.remove(book)
-                self.library.save()
-                self.library_view.refresh()
+                self.library_view.remove_book(book)
             return
         try:
             self.reader.open_book(book)
@@ -85,7 +87,36 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
 
+CRASH_LOG = library.APP_DIR / "crash.log"
+_shown_errors: set[str] = set()
+
+
+def _install_error_handlers():
+    """The installed app has no console, so errors would vanish (or close the app) unseen.
+    Write them to crash.log in the data folder and tell the user instead."""
+    try:
+        CRASH_LOG.parent.mkdir(parents=True, exist_ok=True)
+        log = open(CRASH_LOG, "a", encoding="utf-8")
+    except OSError:
+        return
+    faulthandler.enable(log)  # hard crashes inside Qt / MuPDF still leave a trace
+
+    def hook(kind, value, tb):
+        log.write(f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+        log.write("".join(traceback.format_exception(kind, value, tb)))
+        log.flush()
+        message = f"{kind.__name__}: {value}"
+        if QApplication.instance() and message not in _shown_errors:
+            _shown_errors.add(message)
+            # shown after the current event (often a paint) has finished
+            QTimer.singleShot(0, lambda: QMessageBox.warning(
+                None, "Something went wrong",
+                f"{message}\n\nBookshelf kept running. Details were saved to:\n{CRASH_LOG}"))
+    sys.excepthook = hook
+
+
 def run():
+    _install_error_handlers()
     app = QApplication(sys.argv)
     app.setApplicationName("Bookshelf")
     if sys.platform == "win32":  # our own taskbar icon instead of Python's

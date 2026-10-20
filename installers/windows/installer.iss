@@ -2,7 +2,7 @@
 ; installers/build_app.py builds the app and passes the version and folders below.
 
 #ifndef AppVersion
-  #define AppVersion "1.1.0"
+  #define AppVersion "1.2.0"
 #endif
 #ifndef SourceDir
   #define SourceDir "..\..\build\app\Bookshelf"
