@@ -5,6 +5,7 @@ import os
 import shutil
 import sys
 import time
+import zipfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -86,7 +87,9 @@ def _layout_file(path: str) -> Path | None:
     if not path.lower().endswith(REFLOWABLE):
         return None
     st = os.stat(path)
-    return LAYOUT_DIR / f"{book_id(path)}-{st.st_size}-{st.st_mtime_ns}.layout"
+    # MuPDF trusts this file as is, so it is only used for exactly this file and MuPDF
+    # version: a changed book or an app update just lays the book out again
+    return LAYOUT_DIR / f"{book_id(path)}-{st.st_size}-{st.st_mtime_ns}-{pymupdf.mupdf_version}.layout"
 
 
 def forget_layout(path: str) -> None:
@@ -105,6 +108,30 @@ def needs_layout(path: str) -> bool:
     except OSError:
         return False
     return layout is not None and not layout.exists()
+
+
+BIG_TEXT = 1_000_000  # bytes of book text; laying out more than this takes about half a second
+
+
+def _text_size(path: str) -> int:
+    """Roughly how much text MuPDF has to lay out. EPUBs are zip files of web pages."""
+    if path.lower().endswith(".epub"):
+        try:
+            with zipfile.ZipFile(path) as z:
+                return sum(i.file_size for i in z.infolist()
+                           if i.filename.lower().endswith((".xhtml", ".html", ".htm", ".xml", ".css")))
+        except (OSError, zipfile.BadZipFile):
+            return 0  # MuPDF will say what's wrong with it
+    return os.path.getsize(path)
+
+
+def prepare_in_background(path: str) -> bool:
+    """Should read_book_file() run in the helper process (background.py)? Only for big
+    books that aren't laid out yet: starting the helper costs about a second itself."""
+    try:
+        return needs_layout(path) and _text_size(path) > BIG_TEXT
+    except OSError:
+        return False
 
 
 def open_document(path: str) -> "pymupdf.Document":
