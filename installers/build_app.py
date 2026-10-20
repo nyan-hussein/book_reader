@@ -17,7 +17,7 @@ import time
 import zipfile
 from pathlib import Path
 
-VERSION = "1.3.0"  # shown in Windows' installed-apps list; raise it for each new version
+VERSION = "1.3.1"  # shown in Windows' installed-apps list; raise it for each new version
 
 INSTALLERS = Path(__file__).resolve().parent    # this folder: settings + finished installers
 ROOT = INSTALLERS.parent                        # the project folder
@@ -150,8 +150,8 @@ def self_test(exe: Path | None = None) -> None:
     for n in range(3):
         doc.new_page().insert_text((72, 100), f"Self-test page {n + 1}", fontsize=28)
     doc.save(sample)
-    epub = tmp / "sample.epub"  # EPUBs are prepared in a helper process: check that starts
-    with zipfile.ZipFile(epub, "w") as z:
+    epub = tmp / "sample.epub"  # big EPUBs are prepared in a helper process: check that starts
+    with zipfile.ZipFile(epub, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("mimetype", "application/epub+zip")
         z.writestr("META-INF/container.xml",
                    '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
@@ -160,7 +160,9 @@ def self_test(exe: Path | None = None) -> None:
                    '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="id">'
                    '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Self-test</dc:title><dc:identifier id="id">t</dc:identifier></metadata>'
                    '<manifest><item id="c" href="c.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c"/></spine></package>')
-        z.writestr("c.xhtml", '<html xmlns="http://www.w3.org/1999/xhtml"><body>' + "<p>Self-test text.</p>" * 200 + "</body></html>")
+        # over library.BIG_TEXT, so it really goes through the helper process
+        z.writestr("c.xhtml", '<html xmlns="http://www.w3.org/1999/xhtml"><body>'
+                   + "<p>Self-test text for the helper process.</p>" * 25_000 + "</body></html>")
     shot = tmp / "shot.png"
     env = dict(os.environ, BOOKSHELF_DATA_DIR=str(tmp / "data"),
                BOOKSHELF_SELFTEST=f"{sample}|{epub}|{shot}")

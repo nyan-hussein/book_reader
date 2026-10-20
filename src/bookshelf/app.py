@@ -8,7 +8,7 @@ from PySide6.QtCore import QEvent, QTimer
 from PySide6.QtWidgets import QApplication, QMainWindow, QMessageBox, QStackedWidget
 
 from . import background, library, theme
-from .library import Book, Library, needs_layout, read_book_file
+from .library import Book, Library, prepare_in_background, read_book_file
 from .library_view import LibraryView
 from .reader_view import ReaderView
 
@@ -51,7 +51,7 @@ class MainWindow(QMainWindow):
                 self.library_view.remove_book(book)
             return
         try:
-            if needs_layout(book.path):  # a large EPUB that changed, or was added by an older version
+            if prepare_in_background(book.path):  # a big EPUB that changed, or was added by an older version
                 info = background.run(read_book_file, book.path, parent=self,
                                       text=f"Preparing “{book.title}”…\n"
                                            "Large books take a while the first time.")

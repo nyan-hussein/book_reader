@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from . import background, theme
-from .library import EXTENSIONS, FILE_FILTER, Book, Library, needs_layout, read_book_file
+from .library import EXTENSIONS, FILE_FILTER, Book, Library, prepare_in_background, read_book_file
 from .theme import Glyph, glyph_icon, themed_icon
 
 BOOK_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -320,7 +320,7 @@ class LibraryView(QWidget):
             for path in paths:
                 try:
                     info = None
-                    if not self.library.contains(path) and needs_layout(path):
+                    if not self.library.contains(path) and prepare_in_background(path):
                         info = background.run(read_book_file, path, parent=self,
                                               text=f"Preparing “{Path(path).name}”…\n"
                                                    "Large books take a while the first time.")
