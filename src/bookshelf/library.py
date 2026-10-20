@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import pymupdf
+from pymupdf import mupdf
 
 if os.environ.get("BOOKSHELF_DATA_DIR"):  # used by the build self-test
     APP_DIR = Path(os.environ["BOOKSHELF_DATA_DIR"])
@@ -19,12 +20,20 @@ elif sys.platform == "darwin":
 else:
     APP_DIR = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "Bookshelf"
 COVERS_DIR = APP_DIR / "covers"
+LAYOUT_DIR = APP_DIR / "layout"  # saved page layouts of EPUB-style books (rebuilt if deleted)
 LIBRARY_FILE = APP_DIR / "library.json"
 
 EXTENSIONS = (".pdf", ".epub", ".mobi", ".fb2", ".xps", ".cbz")
+REFLOWABLE = (".epub", ".mobi", ".fb2")  # text that MuPDF splits into pages itself
 FILE_FILTER = "Books ({});;All files (*)".format(" ".join(f"*{e}" for e in EXTENSIONS))
 
 COVER_WIDTH = 360
+PAGE_LAYOUT = dict(width=400, height=600, fontsize=11)  # how EPUB-style books are paged
+
+
+def book_id(path: str) -> str:
+    key = os.path.normcase(os.path.abspath(path))
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
 
 
 @dataclass
@@ -40,8 +49,7 @@ class Book:
 
     @property
     def id(self) -> str:
-        key = os.path.normcase(os.path.abspath(self.path))
-        return hashlib.sha1(key.encode("utf-8")).hexdigest()[:16]
+        return book_id(self.path)
 
     @property
     def cover_path(self) -> Path:
@@ -71,6 +79,68 @@ def _make_cover(doc: "pymupdf.Document", target: Path) -> None:
     zoom = COVER_WIDTH / max(page.rect.width, 1)
     pix = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
     pix.save(str(target))
+
+
+def _layout_file(path: str) -> Path | None:
+    """Where the page layout of this version of the file is saved (None: not an EPUB-style book)."""
+    if not path.lower().endswith(REFLOWABLE):
+        return None
+    st = os.stat(path)
+    return LAYOUT_DIR / f"{book_id(path)}-{st.st_size}-{st.st_mtime_ns}.layout"
+
+
+def forget_layout(path: str) -> None:
+    for old in LAYOUT_DIR.glob(f"{book_id(path)}-*.layout"):
+        try:
+            old.unlink()
+        except OSError:
+            pass
+
+
+def needs_layout(path: str) -> bool:
+    """Will opening this book take a long time? Large EPUBs are laid out page by page the
+    first time (seconds to minutes); after that the saved layout opens them instantly."""
+    try:
+        layout = _layout_file(path)
+    except OSError:
+        return False
+    return layout is not None and not layout.exists()
+
+
+def open_document(path: str) -> "pymupdf.Document":
+    """Open a book file, reusing the saved page layout of EPUB-style books."""
+    doc = pymupdf.open(path, **PAGE_LAYOUT)
+    layout = _layout_file(path) if doc.is_reflowable else None
+    if layout is None:
+        return doc
+    if layout.exists():
+        try:
+            fast = mupdf.fz_open_accelerated_document(path, str(layout))
+            mupdf.fz_layout_document(fast, *PAGE_LAYOUT.values())
+            doc.this = fast
+            return doc
+        except Exception:  # unreadable layout file: lay the book out again below
+            pass
+    doc.page_count  # lays out the whole book: the slow part
+    try:
+        LAYOUT_DIR.mkdir(parents=True, exist_ok=True)
+        forget_layout(path)
+        mupdf.fz_save_accelerator(doc.this, str(layout))
+    except Exception:
+        pass  # it still works, it just stays slow to open
+    return doc
+
+
+def read_book_file(path: str) -> dict:
+    """Open a book once: check it, draw its cover, save its layout. May run in a helper
+    process (see background.py), so it only takes and returns plain values."""
+    with open_document(path) as doc:
+        if doc.page_count == 0:
+            raise ValueError("The book has no pages")
+        COVERS_DIR.mkdir(parents=True, exist_ok=True)
+        _make_cover(doc, COVERS_DIR / f"{book_id(path)}.png")
+        return {"title": _clean_title((doc.metadata or {}).get("title", ""), path),
+                "page_count": doc.page_count}
 
 
 class Library:
@@ -145,21 +215,15 @@ class Library:
         key = os.path.normcase(os.path.abspath(path))
         return any(os.path.normcase(b.path) == key for b in self.books)
 
-    def add(self, path: str) -> Book | None:
+    def add(self, path: str, info: dict | None = None) -> Book | None:
         """Add a book file. Returns None if it is already in the library;
-        raises if the file can't be opened as a book."""
+        raises if the file can't be opened as a book. `info` is read_book_file()'s
+        result when it was already run (in the background)."""
         path = os.path.abspath(path)
         if self.contains(path):
             return None
-        with pymupdf.open(path) as doc:
-            if doc.page_count == 0:
-                raise ValueError("The book has no pages")
-            book = Book(
-                path=path,
-                title=_clean_title((doc.metadata or {}).get("title", ""), path),
-                page_count=doc.page_count,
-            )
-            _make_cover(doc, book.cover_path)
+        info = info or read_book_file(path)
+        book = Book(path=path, title=info["title"], page_count=info["page_count"])
         self.books.append(book)
         return book
 
@@ -171,3 +235,4 @@ class Library:
             book.cover_path.unlink()
         except OSError:
             pass
+        forget_layout(book.path)
