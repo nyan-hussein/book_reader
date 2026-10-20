@@ -56,6 +56,7 @@ python src/main.py
 │       ├── reader_view.py       the reader: page rendering, zoom, gestures, side panel,
 │       │                        page colours, drawing input
 │       ├── annotations.py       highlights and drawings: storage, undo / redo, eraser maths
+│       ├── background.py        slow work (first layout of big EPUBs) in a helper process
 │       ├── tools.py             the pen button and its tools, colours and sizes
 │       ├── overlay.py           floating panels that fade in and out (frosted glass)
 │       └── theme.py             colours (dark / light), stylesheet, icons, app icon
@@ -121,6 +122,10 @@ packing the installer. Change `VERSION` at the top of `installers/build_app.py` 
 | Mac | `~/Library/Application Support/Bookshelf` |
 
 If something goes wrong, the details are written to `crash.log` in that folder.
+
+Large EPUB / MOBI / FB2 books are split into pages once, when they're added (a
+"Preparing…" box shows while that happens); the result is kept in the `layout` folder
+there, so they open instantly afterwards. Deleting that folder is safe.
 
 ## Keyboard shortcuts
 

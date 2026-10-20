@@ -15,8 +15,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from . import theme
-from .library import EXTENSIONS, FILE_FILTER, Book, Library
+from . import background, theme
+from .library import EXTENSIONS, FILE_FILTER, Book, Library, needs_layout, read_book_file
 from .theme import Glyph, glyph_icon, themed_icon
 
 BOOK_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -319,7 +319,14 @@ class LibraryView(QWidget):
         try:
             for path in paths:
                 try:
-                    self.library.add(path)
+                    info = None
+                    if not self.library.contains(path) and needs_layout(path):
+                        info = background.run(read_book_file, path, parent=self,
+                                              text=f"Preparing “{Path(path).name}”…\n"
+                                                   "Large books take a while the first time.")
+                    self.library.add(path, info)
+                except background.Cancelled:
+                    break
                 except Exception:
                     failed.append(Path(path).name)
                 QApplication.processEvents()

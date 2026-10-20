@@ -29,6 +29,7 @@ EDGE = 16                    # gap between panel and screen edge
 MAX_ZOOM = 6.0               # zooming out stops when the whole page fits
 MAX_FULL_PIXELS = 5_000_000  # above this, only the visible part of a page is rendered
 CACHE_BYTES = 320 * 1024 * 1024
+MAX_THUMBS = 12                # tiny page copies kept for the side panel's frosted glass
 IDLE_MS = 2200
 SCROLL_STEP = 140            # pixels per mouse-wheel notch
 WHEEL_SWIPE = 260            # sideways touchpad travel (past the edge) that turns a page
@@ -506,7 +507,7 @@ class ReaderView(QWidget):
     # ---------- book lifecycle ----------
     def open_book(self, book: Book):
         self.close_book()
-        self.doc = pymupdf.open(book.path)
+        self.doc = library.open_document(book.path)
         self.book = book
         self._sizes.clear()
         self._clear_cache()
@@ -1019,12 +1020,19 @@ class ReaderView(QWidget):
     def _thumb(self, i: int) -> QPixmap:
         """A tiny copy of a page (in the current page colour), for the glass blur."""
         if i not in self._thumbs:
-            page = self.doc.load_page(i)
-            zoom = 120 / page.rect.width
-            pix = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
-            self._tint(pix)
-            img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
-            self._thumbs[i] = QPixmap.fromImage(img.copy())
+            full = self._best_full(i)
+            if full is not None:  # shrink the page already on screen: no second render
+                thumb = full.scaledToWidth(120, Qt.TransformationMode.SmoothTransformation)
+            else:
+                page = self.doc.load_page(i)
+                zoom = 120 / page.rect.width
+                pix = page.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
+                self._tint(pix)
+                img = QImage(pix.samples, pix.width, pix.height, pix.stride, QImage.Format.Format_RGB888)
+                thumb = QPixmap.fromImage(img.copy())
+            self._thumbs[i] = thumb
+            while len(self._thumbs) > MAX_THUMBS:  # only pages near the current one are needed
+                del self._thumbs[next(iter(self._thumbs))]
         return self._thumbs[i]
 
     def _render_blur(self, rect: QRect) -> QPixmap:
@@ -1103,22 +1111,23 @@ class ReaderView(QWidget):
             self._prefetch_timer.start()
 
     def _prefetch(self):
-        """Render the neighbouring spreads so turning pages is instant."""
+        """Render the neighbouring spreads so turning pages is instant. One page per call:
+        a scanned page can take a fifth of a second, and a key press or swipe shouldn't
+        wait behind several of them."""
         if not self.doc or self._interacting:
             return
-        try:
-            self._prefetch_pages()
-        except Exception:  # unreadable page: it is shown blank when turned to
-            pass
-
-    def _prefetch_pages(self):
         dpr = self.devicePixelRatioF()
         for page in (self.page + self.mode, self.page - self.mode):
             if 0 <= page < self.count:
                 for i, rect in self._layout(page, oy=0):
                     fw, fh = round(rect.width() * dpr), round(rect.height() * dpr)
-                    if fw * fh <= MAX_FULL_PIXELS:
-                        self._render_full(i, fw)
+                    if fw * fh <= MAX_FULL_PIXELS and ("full", i, fw) not in self._cache:
+                        try:
+                            self._render_full(i, fw)
+                        except Exception:  # unreadable page: it is shown blank when turned to
+                            return
+                        QTimer.singleShot(0, self._prefetch)  # the next one, after waiting events
+                        return
 
     def resizeEvent(self, event):
         self._cancel_free()

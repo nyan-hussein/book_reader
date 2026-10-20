@@ -14,9 +14,10 @@ import subprocess
 import sys
 import tempfile
 import time
+import zipfile
 from pathlib import Path
 
-VERSION = "1.2.0"  # shown in Windows' installed-apps list; raise it for each new version
+VERSION = "1.3.0"  # shown in Windows' installed-apps list; raise it for each new version
 
 INSTALLERS = Path(__file__).resolve().parent    # this folder: settings + finished installers
 ROOT = INSTALLERS.parent                        # the project folder
@@ -47,6 +48,8 @@ EXCLUDE = [
     # big libraries that happen to be installed but the app doesn't use
     "numpy", "scipy", "PIL", "cryptography", "pydantic", "pydantic_core", "pandas",
     "matplotlib", "IPython", "jedi", "lxml", "fontTools", "sympy",
+    # PyMuPDF 2's optional AI page-layout add-on (pulls in onnxruntime); the reader doesn't use it
+    "pymupdf.layout", "pymupdf_layout", "pymupdf4llm", "onnxruntime",
 ]
 if WINDOWS:
     EXCLUDE += ["qtawesome", "qtpy"]  # Windows uses its own icon font; the Mac needs these
@@ -147,12 +150,23 @@ def self_test(exe: Path | None = None) -> None:
     for n in range(3):
         doc.new_page().insert_text((72, 100), f"Self-test page {n + 1}", fontsize=28)
     doc.save(sample)
+    epub = tmp / "sample.epub"  # EPUBs are prepared in a helper process: check that starts
+    with zipfile.ZipFile(epub, "w") as z:
+        z.writestr("mimetype", "application/epub+zip")
+        z.writestr("META-INF/container.xml",
+                   '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+                   '<rootfiles><rootfile full-path="book.opf" media-type="application/oebps-package+xml"/></rootfiles></container>')
+        z.writestr("book.opf",
+                   '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="id">'
+                   '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>Self-test</dc:title><dc:identifier id="id">t</dc:identifier></metadata>'
+                   '<manifest><item id="c" href="c.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="c"/></spine></package>')
+        z.writestr("c.xhtml", '<html xmlns="http://www.w3.org/1999/xhtml"><body>' + "<p>Self-test text.</p>" * 200 + "</body></html>")
     shot = tmp / "shot.png"
     env = dict(os.environ, BOOKSHELF_DATA_DIR=str(tmp / "data"),
-               BOOKSHELF_SELFTEST=f"{sample}|{shot}")
+               BOOKSHELF_SELFTEST=f"{sample}|{epub}|{shot}")
     subprocess.run([str(exe)], env=env, timeout=180, check=True)
     if not shot.exists() or shot.stat().st_size < 10_000:
-        raise SystemExit("Self-test FAILED: the built app did not show the book")
+        raise SystemExit("Self-test FAILED: the built app did not add both books and show one")
     print(f"  self-test passed: {exe}")
 
 
