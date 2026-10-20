@@ -952,6 +952,12 @@ class ReaderView(QWidget):
         return self._cache_put(key, self._to_qpixmap(pix))
 
     def _draw_page(self, p: QPainter, i: int, rect: QRect, exact: bool):
+        try:
+            self._draw_page_pixels(p, i, rect, exact)
+        except Exception:  # e.g. the book file was moved or deleted while it was open
+            p.fillRect(rect, QColor(self._theme.paper))
+
+    def _draw_page_pixels(self, p: QPainter, i: int, rect: QRect, exact: bool):
         dpr = self.devicePixelRatioF()
         fw, fh = round(rect.width() * dpr), round(rect.height() * dpr)
         fits = fw * fh <= MAX_FULL_PIXELS
@@ -1100,6 +1106,12 @@ class ReaderView(QWidget):
         """Render the neighbouring spreads so turning pages is instant."""
         if not self.doc or self._interacting:
             return
+        try:
+            self._prefetch_pages()
+        except Exception:  # unreadable page: it is shown blank when turned to
+            pass
+
+    def _prefetch_pages(self):
         dpr = self.devicePixelRatioF()
         for page in (self.page + self.mode, self.page - self.mode):
             if 0 <= page < self.count:

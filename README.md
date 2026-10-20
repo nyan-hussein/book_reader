@@ -9,6 +9,8 @@ pen drawing, and full touch-screen and touchpad support.
 
 - **Library home screen** with book covers, reading progress and search; add books with a
   button or by dragging files in.
+- **Remove a book** by right-clicking its cover → *Remove from library* (the file itself is
+  kept). Books whose file was moved or deleted show *File not found*; click to remove them.
 - **Full-screen reader**: one page or two pages side by side, *Whole page* or *Full width*.
 - **Gestures**: pinch to zoom (it zooms exactly where your fingers are), drag to move,
   swipe sideways to turn pages. Works with touch screens, touchpads and the mouse.
@@ -113,6 +115,8 @@ packing the installer. Change `VERSION` at the top of `installers/build_app.py` 
 |---|---|
 | Windows | `%APPDATA%\Bookshelf` |
 | Mac | `~/Library/Application Support/Bookshelf` |
+
+If something goes wrong, the details are written to `crash.log` in that folder.
 
 ## Keyboard shortcuts
 

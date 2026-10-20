@@ -4,7 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QRectF, QSize, QSortFilterProxyModel, Qt, Signal
+from PySide6.QtCore import QRectF, QSize, QSortFilterProxyModel, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor, QFont, QFontMetrics, QLinearGradient, QPainter, QPainterPath, QPen,
     QPixmap, QStandardItem, QStandardItemModel,
@@ -274,7 +274,7 @@ class LibraryView(QWidget):
         self.grid.viewport().setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         self.grid.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
         self.grid.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.grid.clicked.connect(lambda idx: self.open_requested.emit(idx.data(BOOK_ROLE)))
+        self.grid.clicked.connect(self._clicked)
         self.grid.customContextMenuRequested.connect(self._context_menu)
 
         self.pages = QStackedWidget()
@@ -284,6 +284,11 @@ class LibraryView(QWidget):
         root.addWidget(self.pages, 1)
 
         self.refresh()
+
+    def _clicked(self, index) -> None:
+        book = index.data(BOOK_ROLE)
+        if book is not None and any(b is book for b in self.library.books):
+            self.open_requested.emit(book)
 
     def _sync_look(self):
         dark = theme.MODE == "dark"
@@ -331,19 +336,32 @@ class LibraryView(QWidget):
         if not index.isValid():
             return
         book: Book = index.data(BOOK_ROLE)
+        if book is None or not any(b is book for b in self.library.books):
+            return
         menu = QMenu(self)
         menu.addAction(glyph_icon(Glyph.READ), "Read", lambda: self.open_requested.emit(book))
         reveal = menu.addAction(glyph_icon(Glyph.FOLDER), "Show in folder",
                                 lambda: _show_in_folder(book.path))
         reveal.setEnabled(book.exists)
         menu.addSeparator()
-        menu.addAction(glyph_icon(Glyph.DELETE, theme.DANGER), "Remove from library", lambda: self._remove(book))
+        menu.addAction(glyph_icon(Glyph.DELETE, theme.DANGER), "Remove from library",
+                       lambda: self._confirm_remove(book))
         menu.exec(self.grid.viewport().mapToGlobal(pos))
 
-    def _remove(self, book: Book) -> None:
+    def _confirm_remove(self, book: Book) -> None:
+        answer = QMessageBox.question(
+            self, "Remove book",
+            f"Remove “{book.title}” from your library?\n\n"
+            "The book file on your computer is not deleted.")
+        if answer == QMessageBox.StandardButton.Yes:
+            self.remove_book(book)
+
+    def remove_book(self, book: Book) -> None:
         self.library.remove(book)
         self.library.save()
-        self.refresh()
+        # rebuild the grid after the current click / menu has finished: clearing the model
+        # while the list view is still handling the event that led here can crash Qt
+        QTimer.singleShot(0, self.refresh)
 
     # drag and drop book files onto the window
     @staticmethod
