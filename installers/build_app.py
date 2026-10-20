@@ -16,7 +16,7 @@ import tempfile
 import time
 from pathlib import Path
 
-VERSION = "1.1.0"  # shown in Windows' installed-apps list; raise it for each new version
+VERSION = "1.2.0"  # shown in Windows' installed-apps list; raise it for each new version
 
 INSTALLERS = Path(__file__).resolve().parent    # this folder: settings + finished installers
 ROOT = INSTALLERS.parent                        # the project folder
